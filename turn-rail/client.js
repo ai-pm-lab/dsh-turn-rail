@@ -1,0 +1,546 @@
+/**
+ * turn-rail — browser bundle (client half).
+ *
+ * DeepSeek web scrollNav port (panel-expand model, v5):
+ * - a 34px × 300px glass strip, fixed right:16px, vertically centered
+ * - one row per user message: an 8×2px indicator line + title text that is
+ *   hidden until the strip is hovered
+ * - hovering the strip turns the transparent strip into a real panel
+ *   (surface background, border, shadow, pointer events), reveals each
+ *   row's title, and the width grows up to 240px
+ * - hovering a row shows a tooltip with the message preview (5 lines)
+ * - clicking a row jumps the conversation to that turn; messages not yet
+ *   loaded auto-page the chat's "load older" path
+ * - scroll-spy via IntersectionObserver watchline highlights the active
+ *   turn (brand color, line scales ×1.5); the active row stays visible
+ *   inside the expanded panel
+ * - full history comes from the host `turn-rail-history` projection
+ *
+ * Bundle contract (matches the tsdown client preset output):
+ *   window.__ModuleLoader__.load({ id, factory(require) => module.exports })
+ */
+window.__ModuleLoader__.load({
+  id: '@dsh-user/turn-rail',
+  factory: (require) => {
+    'use strict'
+    var module = { exports: {} }
+    var exports = module.exports
+    Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
+    var react = require('react')
+
+    var CSS = `
+      .tr-nav {
+        position: fixed;
+        top: 50%;
+        bottom: 50%;
+        right: 16px;
+        transform: translateY(-50%);
+        width: 34px;
+        height: 300px;
+        z-index: 900;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        user-select: none;
+        transition: all .2s;
+        --tr-page-padding: 15px 0 15px 24px;
+      }
+      .tr-bg {
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        z-index: -1;
+        background-color: rgba(255,255,255,.8);
+        border-radius: 16px;
+        width: 34px;
+        height: calc(100% - 8px);
+        max-height: calc(100% - 8px);
+        position: absolute;
+        top: 50%;
+        right: 0;
+        transform: translateY(-50%);
+      }
+      @media (prefers-color-scheme: dark) {
+        .tr-bg { background-color: rgba(21,21,23,.6); }
+      }
+      .tr-wrapper {
+        width: 34px;
+        pointer-events: none;
+        border: 1px solid transparent;
+        border-radius: 16px;
+        flex-direction: column;
+        align-items: stretch;
+        max-width: 240px;
+        max-height: 100%;
+        transition: background .2s, box-shadow .2s, width .2s;
+        display: flex;
+        position: absolute;
+        right: 0;
+        overflow: hidden;
+      }
+      .tr-wrapper.tr-show {
+        width: fit-content;
+        pointer-events: auto;
+        background: var(--dsw-alias-bg-layer-1, #fff);
+        box-shadow: 0 8px 32px rgba(0,0,0,.16);
+        border-color: var(--dsw-alias-border-l2, rgba(128,128,128,.3));
+      }
+      .tr-wrapper:before, .tr-wrapper:after {
+        content: "";
+        z-index: 2;
+        pointer-events: none;
+        opacity: 0;
+        background: linear-gradient(#fff 20.19%, rgba(255,255,255,0) 100%);
+        width: 100%;
+        height: 32px;
+        transition: opacity .2s;
+        position: absolute;
+        left: 0;
+      }
+      .tr-wrapper.tr-show:before, .tr-wrapper.tr-show:after { opacity: 1; transition: none; }
+      .tr-wrapper:before { top: 0; }
+      .tr-wrapper:after { bottom: 0; transform: rotate(180deg); }
+      .tr-wrapper.tr-at-top:after, .tr-wrapper.tr-at-bottom:before,
+      .tr-wrapper.tr-no-scroll:before, .tr-wrapper.tr-no-scroll:after { opacity: 0; }
+      @media (prefers-color-scheme: dark) {
+        .tr-wrapper:before, .tr-wrapper:after {
+          background: linear-gradient(180deg, var(--dsw-alias-bg-layer-1, #151517) 20.19%, rgba(35,35,36,0) 100%);
+        }
+      }
+      .tr-page {
+        max-height: 250px;
+        padding: var(--tr-page-padding);
+        overscroll-behavior: contain;
+        flex-direction: column;
+        align-items: flex-end;
+        display: flex;
+        position: relative;
+        overflow-y: auto;
+      }
+      .tr-item {
+        cursor: pointer;
+        height: 30px;
+        color: var(--dsw-alias-label-secondary, #999);
+        justify-content: flex-end;
+        align-items: center;
+        width: calc(100% - 6px);
+        margin-right: 8px;
+        line-height: 20px;
+        display: flex;
+        flex: none;
+      }
+      .tr-item:hover { color: var(--dsw-alias-label-primary, #222); }
+      .tr-indicator {
+        flex-shrink: 0;
+        justify-content: center;
+        align-items: center;
+        width: 16px;
+        height: 20px;
+        display: flex;
+      }
+      .tr-line {
+        background-color: var(--dsw-alias-label-secondary, #999);
+        border-radius: 4px;
+        flex-shrink: 0;
+        width: 8px;
+        height: 2px;
+        transition: background-color .2s, transform .2s;
+      }
+      .tr-item:hover .tr-line { background-color: var(--dsw-alias-label-primary, #222); }
+      .tr-title {
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        opacity: 0;
+        margin-right: 12px;
+        transition: opacity .1s, color .2s;
+        overflow: hidden;
+        max-width: 160px;
+      }
+      .tr-wrapper.tr-show .tr-title { opacity: 1; }
+      .tr-item:hover .tr-title { color: var(--dsw-alias-label-primary, #222); }
+      .tr-item.tr-active .tr-title {
+        color: rgb(57,100,254);
+        font-weight: 500;
+        opacity: 1;
+      }
+      .tr-item.tr-active .tr-line {
+        background-color: rgb(57,100,254);
+        transform: scale(1.5);
+      }
+      .tr-tooltip {
+        position: fixed;
+        transform: translateY(-50%);
+        right: 60px;
+        max-width: 280px;
+        background: var(--dsw-alias-bg-overlay, #fff);
+        border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,.3));
+        border-radius: 10px;
+        padding: 9px 12px;
+        box-shadow: 0 8px 28px rgba(0,0,0,.22);
+        pointer-events: none;
+        z-index: 2000;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .tr-tooltip-time {
+        font-size: 11px;
+        color: var(--dsw-alias-label-secondary, #888);
+        flex: none;
+      }
+      .tr-tooltip-text {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--dsw-alias-label-primary, #222);
+        white-space: pre-wrap;
+        word-break: break-all;
+        display: -webkit-box;
+        -webkit-line-clamp: 5;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .tr-flash { animation: tr-flash 1.4s ease-out; }
+      @keyframes tr-flash {
+        0% { box-shadow: 0 0 0 3px rgb(57,100,254); }
+        100% { box-shadow: 0 0 0 0 rgba(57,100,254,0); }
+      }
+    `
+
+    var extractText = function (content) {
+      if (!Array.isArray(content)) return ''
+      var parts = []
+      for (var i = 0; i < content.length; i += 1) {
+        var block = content[i]
+        if (block !== null && typeof block === 'object' && typeof block.text === 'string') {
+          parts.push(block.text)
+        }
+      }
+      return parts.join(' ').replace(/\s+/g, ' ').trim()
+    }
+
+    var pad = function (n) { return String(n).padStart(2, '0') }
+
+    var fmtTime = function (t) {
+      if (typeof t !== 'number' || !Number.isFinite(t)) return ''
+      var d = new Date(t)
+      var now = new Date()
+      var hhmm = pad(d.getHours()) + ':' + pad(d.getMinutes())
+      var sameDay = d.getFullYear() === now.getFullYear()
+        && d.getMonth() === now.getMonth()
+        && d.getDate() === now.getDate()
+      return sameDay ? hhmm : pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hhmm
+    }
+
+    var escapeAttr = function (s) {
+      return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    }
+
+    var apply = function (ctx) {
+      var slots = ctx.get('slots')
+      if (slots === undefined) return
+
+      var styleTag = document.createElement('style')
+      styleTag.dataset.dyn = 'turn-rail'
+      styleTag.textContent = CSS
+      document.head.append(styleTag)
+      ctx.effect(function () {
+        return function () {
+          styleTag.remove()
+        }
+      })
+
+      function Rail(props) {
+        var useSession = props.useSession
+        var useProjection = props.useProjection
+        var sessionId = props.sessionId
+        var order = useSession(function (s) { return s.chat.order })
+        var nodes = useSession(function (s) { return s.chat.nodes })
+        var history = useProjection('turn-rail-history')
+        var showState = react.useState(false)
+        var show = showState[0]
+        var setShow = showState[1]
+        var activeState = react.useState(null)
+        var active = activeState[0]
+        var setActive = activeState[1]
+        var tipState = react.useState(null)
+        var tip = tipState[0]
+        var setTip = tipState[1]
+        var edgeState = react.useState('no-scroll')
+        var edge = edgeState[0]
+        var setEdge = edgeState[1]
+        var pageRef = react.useRef(null)
+        var aliveRef = react.useRef(true)
+
+        react.useEffect(function () {
+          aliveRef.current = true
+          return function () {
+            aliveRef.current = false
+          }
+        }, [])
+
+        // Window-scoped live user nodes: key + seq + text.
+        var windowEntries = []
+        var seqToKey = new Map()
+        var keyToSeq = new Map()
+        for (var i = 0; i < order.length; i += 1) {
+          var key = order[i]
+          var node = nodes.get(key)
+          if (node === undefined || node.kind !== 'user') continue
+          var data = node.data
+          var seq = data !== null && typeof data === 'object' && typeof data.seq === 'number' ? data.seq : 0
+          if (seq === 0) continue
+          windowEntries.push({
+            key: key,
+            seq: seq,
+            time: data !== null && typeof data === 'object' && typeof data.time === 'number' ? data.time : 0,
+            text: extractText(data !== null && typeof data === 'object' ? data.content : undefined),
+          })
+          seqToKey.set(seq, key)
+          keyToSeq.set(key, seq)
+        }
+
+        var bySeq = new Map()
+        if (Array.isArray(history)) {
+          for (var h = 0; h < history.length; h += 1) {
+            var item = history[h]
+            if (item === null || typeof item !== 'object') continue
+            var hseq = typeof item.seq === 'number' ? item.seq : 0
+            if (hseq === 0) continue
+            bySeq.set(hseq, {
+              seq: hseq,
+              time: typeof item.time === 'number' ? item.time : 0,
+              text: typeof item.text === 'string' ? item.text : '',
+              key: seqToKey.get(hseq),
+            })
+          }
+        }
+        for (var w = 0; w < windowEntries.length; w += 1) {
+          var we = windowEntries[w]
+          if (!bySeq.has(we.seq)) bySeq.set(we.seq, we)
+        }
+        var entries = Array.from(bySeq.values()).sort(function (a, b) { return a.seq - b.seq })
+
+        var seqToKeyRef = react.useRef(seqToKey)
+        seqToKeyRef.current = seqToKey
+        var keyToSeqRef = react.useRef(keyToSeq)
+        keyToSeqRef.current = keyToSeq
+
+        var orderRef = react.useRef(order)
+        orderRef.current = order
+        var kindRef = react.useRef(null)
+        kindRef.current = (function () {
+          var m = new Map()
+          for (var i = 0; i < order.length; i += 1) {
+            var k = order[i]
+            var n = nodes.get(k)
+            m.set(k, n === undefined ? 'unknown' : n.kind)
+          }
+          return m
+        })()
+
+        // Scroll-spy (IntersectionObserver watchline, NetEye-style): a thin
+        // horizontal band at ~45% of the scrollport; the turn whose row
+        // crosses that band (nearest the top when several intersect) is the
+        // active one. No scroll-event throttling, no jank. When the band hits
+        // a non-user row (long assistant reply), walk back to its turn.
+        react.useEffect(function () {
+          var scroller = document.querySelector('[data-conversation-scroll]')
+          if (scroller === null || typeof IntersectionObserver === 'undefined') return
+          var els = []
+          for (var i = 0; i < order.length; i += 1) {
+            var k = order[i]
+            var el = document.querySelector('[data-chat-anchor-key="' + escapeAttr(k) + '"]')
+            if (el !== null) els.push(el)
+          }
+          if (els.length === 0) return
+          var observer = new IntersectionObserver(function (entries) {
+            var best = null
+            var bestTop = Infinity
+            for (var i = 0; i < entries.length; i += 1) {
+              if (!entries[i].isIntersecting) continue
+              var top = entries[i].boundingClientRect.top
+              if (top < bestTop) {
+                bestTop = top
+                best = entries[i].target.dataset.chatAnchorKey
+              }
+            }
+            if (best === null) {
+              setActive(null)
+              return
+            }
+            var seq = keyToSeqRef.current.get(best)
+            if (seq !== undefined) {
+              setActive(seq)
+              return
+            }
+            var arr = orderRef.current
+            var idx = arr.indexOf(best)
+            while (idx >= 0) {
+              var s = keyToSeqRef.current.get(arr[idx])
+              if (s !== undefined) {
+                setActive(s)
+                return
+              }
+              idx -= 1
+            }
+            setActive(null)
+          }, {
+            root: scroller,
+            rootMargin: '-40% 0px -55% 0px',
+            threshold: 0,
+          })
+          for (var j = 0; j < els.length; j += 1) observer.observe(els[j])
+          return function () {
+            observer.disconnect()
+          }
+        }, [order, sessionId])
+
+        // Keep the active row visible inside the expanded panel.
+        react.useEffect(function () {
+          if (!show || active === null) return
+          var list = pageRef.current
+          if (list === null) return
+          var target = list.querySelector('.tr-item.tr-active')
+          if (target !== null) target.scrollIntoView({ block: 'nearest' })
+        }, [show, active])
+
+        if (entries.length === 0) return null
+
+        var updateEdge = function () {
+          var el = pageRef.current
+          if (el === null) return
+          var canTop = el.scrollTop > 2
+          var canBottom = el.scrollHeight - el.scrollTop - el.clientHeight > 2
+          setEdge(canTop && canBottom ? 'both' : canTop ? 'top' : canBottom ? 'bottom' : 'no-scroll')
+        }
+
+        var flashRow = function (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          row.classList.add('tr-flash')
+          setTimeout(function () {
+            row.classList.remove('tr-flash')
+          }, 1500)
+        }
+
+        var jump = function (entry) {
+          setShow(false)
+          setTip(null)
+          if (entry.key !== undefined) {
+            var row = document.querySelector('[data-chat-anchor-key="' + escapeAttr(entry.key) + '"]')
+            if (row !== null && row instanceof HTMLElement) {
+              flashRow(row)
+              return
+            }
+          }
+          // Target not loaded into the window yet: auto-page via the
+          // chat's own "load older" button until the turn arrives.
+          var attempts = 0
+          var timer = setInterval(function () {
+            if (!aliveRef.current) {
+              clearInterval(timer)
+              return
+            }
+            attempts += 1
+            var keyNow = seqToKeyRef.current.get(entry.seq)
+            if (keyNow !== undefined) {
+              var rowNow = document.querySelector('[data-chat-anchor-key="' + escapeAttr(keyNow) + '"]')
+              if (rowNow !== null && rowNow instanceof HTMLElement) {
+                clearInterval(timer)
+                flashRow(rowNow)
+                return
+              }
+            }
+            if (attempts > 40) {
+              clearInterval(timer)
+              return
+            }
+            var flow = document.querySelector('[data-conversation-scroll] [data-chat-flow]')
+            if (flow === null) return
+            var btn = flow.querySelector('button')
+            if (btn === null || btn.disabled) return
+            btn.click()
+          }, 300)
+        }
+
+        var openTip = function (entry) {
+          setTip({ seq: entry.seq, time: entry.time, text: entry.text })
+        }
+
+        var wrapperClass = 'tr-wrapper'
+          + (show ? ' tr-show' : '')
+          + (edge === 'top' || edge === 'both' ? ' tr-at-top' : '')
+          + (edge === 'bottom' || edge === 'both' ? ' tr-at-bottom' : '')
+          + (edge === 'no-scroll' ? ' tr-no-scroll' : '')
+
+        var nav = react.createElement('div', {
+          className: 'tr-nav',
+          onMouseEnter: function () { setShow(true) },
+          onMouseLeave: function () { setShow(false); setTip(null) },
+        },
+          react.createElement('div', { className: 'tr-bg' }),
+          react.createElement('div', { className: wrapperClass },
+            react.createElement('div', {
+              className: 'tr-page',
+              ref: function (el) { pageRef.current = el },
+              onScroll: updateEdge,
+            },
+              entries.map(function (e) {
+                var isActive = e.seq === active
+                return react.createElement('div', {
+                  key: String(e.seq),
+                  className: 'tr-item' + (isActive ? ' tr-active' : ''),
+                  onClick: function () { jump(e) },
+                  onMouseEnter: function () { openTip(e) },
+                  onMouseLeave: function () { setTip(null) },
+                },
+                  react.createElement('span', { className: 'tr-indicator' },
+                    react.createElement('span', { className: 'tr-line' }),
+                  ),
+                  react.createElement('span', { className: 'tr-title' },
+                    e.text || '（图片/附件消息）',
+                  ),
+                )
+              }),
+            ),
+          ),
+        )
+
+        var tooltip = null
+        if (tip !== null) {
+          var hit = null
+          for (var i = 0; i < entries.length; i += 1) {
+            if (entries[i].seq === tip.seq) {
+              hit = entries[i]
+              break
+            }
+          }
+          if (hit !== null) {
+            tooltip = react.createElement('div', { className: 'tr-tooltip' },
+              react.createElement('span', { className: 'tr-tooltip-time' }, fmtTime(hit.time)),
+              react.createElement('span', { className: 'tr-tooltip-text' }, hit.text || '（图片/附件消息）'),
+            )
+          }
+        }
+
+        return react.createElement(react.Fragment, null, nav, tooltip)
+      }
+
+      slots.inject('conversation.input.dock', function () {
+        return slots.register(
+          { name: 'conversation.input.dock', id: 'turn-rail', order: 100, label: '对话轮次记录条' },
+          function (props) {
+            return react.createElement(Rail, {
+              useSession: props.useSession,
+              useProjection: props.useProjection,
+              sessionId: props.sessionId,
+            })
+          },
+        )
+      })
+    }
+
+    exports.apply = apply
+    exports.inject = ['slots']
+    return module.exports
+  },
+})

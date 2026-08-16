@@ -1,0 +1,6 @@
+# turn-rail bundle — inserts the turn-rail client row into the web roster.
+# Applied after @deepseek-ai/dsh-web-app's bundle layer; adds one browser
+# plugin row backed by the @dsh-user/turn-rail package.
+- insert:
+    - id: turn-rail
+      name: '@dsh-user/turn-rail'

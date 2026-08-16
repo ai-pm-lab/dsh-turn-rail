@@ -115,7 +115,9 @@ window.__ModuleLoader__.load({
         display: flex;
         position: relative;
         overflow-y: auto;
+        scrollbar-width: none;
       }
+      .tr-page::-webkit-scrollbar { display: none; }
       .tr-item {
         cursor: pointer;
         height: 30px;
@@ -138,14 +140,14 @@ window.__ModuleLoader__.load({
         display: flex;
       }
       .tr-line {
-        background-color: var(--dsw-alias-label-secondary, #999);
+        background-color: #e5e7eb;
         border-radius: 4px;
         flex-shrink: 0;
         width: 8px;
         height: 2px;
-        transition: background-color .2s, transform .2s;
+        transition: background-color .2s, width .2s;
       }
-      .tr-item:hover .tr-line { background-color: var(--dsw-alias-label-primary, #222); }
+      .tr-item:hover .tr-line { background-color: #9ca3af; }
       .tr-title {
         font-size: 13px;
         text-overflow: ellipsis;
@@ -159,13 +161,17 @@ window.__ModuleLoader__.load({
       .tr-wrapper.tr-show .tr-title { opacity: 1; }
       .tr-item:hover .tr-title { color: var(--dsw-alias-label-primary, #222); }
       .tr-item.tr-active .tr-title {
-        color: rgb(57,100,254);
+        color: #3b82f6;
         font-weight: 500;
         opacity: 1;
       }
       .tr-item.tr-active .tr-line {
-        background-color: rgb(57,100,254);
-        transform: scale(1.5);
+        background-color: #3b82f6;
+        width: 12px;
+      }
+      @media (prefers-color-scheme: dark) {
+        .tr-line { background-color: #3f3f46; }
+        .tr-item:hover .tr-line { background-color: #6b7280; }
       }
       .tr-tooltip {
         position: fixed;
@@ -201,8 +207,8 @@ window.__ModuleLoader__.load({
       }
       .tr-flash { animation: tr-flash 1.4s ease-out; }
       @keyframes tr-flash {
-        0% { box-shadow: 0 0 0 3px rgb(57,100,254); }
-        100% { box-shadow: 0 0 0 0 rgba(57,100,254,0); }
+        0% { box-shadow: 0 0 0 3px rgba(59,130,246,.5); }
+        100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
       }
     `
 
@@ -493,11 +499,11 @@ window.__ModuleLoader__.load({
                   onMouseEnter: function () { openTip(e) },
                   onMouseLeave: function () { setTip(null) },
                 },
-                  react.createElement('span', { className: 'tr-indicator' },
-                    react.createElement('span', { className: 'tr-line' }),
-                  ),
                   react.createElement('span', { className: 'tr-title' },
                     e.text || '（图片/附件消息）',
+                  ),
+                  react.createElement('span', { className: 'tr-indicator' },
+                    react.createElement('span', { className: 'tr-line' }),
                   ),
                 )
               }),

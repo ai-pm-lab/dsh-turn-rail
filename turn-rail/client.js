@@ -278,7 +278,6 @@ window.__ModuleLoader__.load({
         var setShow = showState[1]
         var showRef = react.useRef(false)
         showRef.current = show
-        var scrollerRef = react.useRef(null)
         var activeState = react.useState(null)
         var active = activeState[0]
         var setActive = activeState[1]
@@ -424,34 +423,25 @@ window.__ModuleLoader__.load({
           if (target !== null) target.scrollIntoView({ block: 'nearest' })
         }, [show, active])
 
-        // Sync the nav strip's scroll window with the conversation scrollport
-        // (proportional): as the chat scrolls, the visible bars move with it.
+        // The nav strip's scroll window follows the ACTIVE turn (the message
+        // currently at the viewport center, tracked by the scroll-spy):
+        // center that turn's bar inside the strip. No proportional guessing,
+        // so what you see in the chat is exactly what the strip shows.
         // While hovered (panel expanded), the user scrolls the panel freely;
-        // sync resumes on mouse leave and on the next conversation scroll.
+        // sync resumes on mouse leave and on the next active change.
         var syncNav = function () {
           if (showRef.current) return
-          var scroller = scrollerRef.current
           var page = pageRef.current
-          if (scroller === null || page === null) return
-          var convRange = scroller.scrollHeight - scroller.clientHeight
-          var navRange = page.scrollHeight - page.clientHeight
-          if (convRange <= 0 || navRange <= 0) {
-            page.scrollTop = 0
-            return
-          }
-          page.scrollTop = (scroller.scrollTop / convRange) * navRange
+          if (page === null) return
+          var item = page.querySelector('.tr-item.tr-active')
+          if (item === null) return
+          var target = item.offsetTop - (page.clientHeight - 30) / 2
+          target = Math.max(0, Math.min(target, page.scrollHeight - page.clientHeight))
+          page.scrollTop = target
         }
         react.useEffect(function () {
-          var scroller = document.querySelector('[data-conversation-scroll]')
-          if (scroller === null) return
-          scrollerRef.current = scroller
-          var throttled = throttle(syncNav, 80)
           syncNav()
-          scroller.addEventListener('scroll', throttled, { passive: true })
-          return function () {
-            scroller.removeEventListener('scroll', throttled)
-          }
-        }, [order, entries.length])
+        }, [active, entries.length])
 
         if (entries.length === 0) return null
 

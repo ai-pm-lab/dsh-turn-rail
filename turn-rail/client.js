@@ -210,8 +210,10 @@ window.__ModuleLoader__.load({
         0% { box-shadow: 0 0 0 3px rgba(59,130,246,.5); }
         100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
       }
-      /* Apple-style loading spinner (42px), slides in from the conversation
-         top (50px) and back out; shown while early turns auto-page in. */
+      /* Apple-style bar spinner (42px): 12 rounded bars radiating out,
+         each with a staggered opacity phase → spinning sweep. Slides in
+         from the conversation top (50px) and back out; shown while early
+         turns auto-page in. */
       .tr-loader {
         position: fixed;
         z-index: 1200;
@@ -221,17 +223,23 @@ window.__ModuleLoader__.load({
         transform: translateX(-50%);
         transition: transform .28s ease;
       }
-      .tr-loader:before {
-        content: "";
-        display: block;
-        width: 42px;
-        height: 42px;
-        border: 3px solid rgba(142,142,147,.28);
-        border-top-color: #8e8e93;
-        border-radius: 50%;
-        animation: tr-spin .75s linear infinite;
+      .tr-loader i {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 3px;
+        height: 9px;
+        margin: -4.5px 0 0 -1.5px;
+        border-radius: 1.5px;
+        background: #5f6a7d;
+        opacity: .3;
+        animation: tr-dot 1s linear infinite;
       }
-      @keyframes tr-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      @keyframes tr-dot {
+        0% { opacity: 1; }
+        50% { opacity: .3; }
+        100% { opacity: 1; }
+      }
     `
 
     var extractText = function (content) {
@@ -611,6 +619,16 @@ window.__ModuleLoader__.load({
         var loaderEl = null
         if (loader !== 'idle' && loaderPos !== null) {
           var ty = loader === 'spinning' ? 0 : loader === 'leaving' ? -90 : -50
+          var bars = []
+          for (var b = 0; b < 12; b += 1) {
+            bars.push(react.createElement('i', {
+              key: b,
+              style: {
+                transform: 'rotate(' + (b * 30) + 'deg) translateY(-14px)',
+                animationDelay: (b * (1000 / 12) / 1000) + 's',
+              },
+            }))
+          }
           loaderEl = react.createElement('div', {
             className: 'tr-loader',
             style: {
@@ -618,7 +636,7 @@ window.__ModuleLoader__.load({
               left: loaderPos.left,
               transform: 'translateX(-50%) translateY(' + ty + 'px)',
             },
-          })
+          }, bars)
         }
 
         return react.createElement(react.Fragment, null, nav, tooltip, loaderEl)

@@ -210,6 +210,28 @@ window.__ModuleLoader__.load({
         0% { box-shadow: 0 0 0 3px rgba(59,130,246,.5); }
         100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
       }
+      /* Apple-style loading spinner (42px), slides in from the conversation
+         top (50px) and back out; shown while early turns auto-page in. */
+      .tr-loader {
+        position: fixed;
+        z-index: 1200;
+        width: 42px;
+        height: 42px;
+        pointer-events: none;
+        transform: translateX(-50%);
+        transition: transform .28s ease;
+      }
+      .tr-loader:before {
+        content: "";
+        display: block;
+        width: 42px;
+        height: 42px;
+        border: 3px solid rgba(142,142,147,.28);
+        border-top-color: #8e8e93;
+        border-radius: 50%;
+        animation: tr-spin .75s linear infinite;
+      }
+      @keyframes tr-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     `
 
     var extractText = function (content) {
@@ -281,6 +303,12 @@ window.__ModuleLoader__.load({
         var activeState = react.useState(null)
         var active = activeState[0]
         var setActive = activeState[1]
+        var loaderState = react.useState('idle')
+        var loader = loaderState[0]
+        var setLoader = loaderState[1]
+        var loaderPosState = react.useState(null)
+        var loaderPos = loaderPosState[0]
+        var setLoaderPos = loaderPosState[1]
         var tipState = react.useState(null)
         var tip = tipState[0]
         var setTip = tipState[1]
@@ -453,6 +481,22 @@ window.__ModuleLoader__.load({
           }, 1500)
         }
 
+        var startLoader = function () {
+          var scroller = document.querySelector('[data-conversation-scroll]')
+          if (scroller !== null) {
+            var r = scroller.getBoundingClientRect()
+            setLoaderPos({ left: r.left + r.width / 2, top: r.top })
+          }
+          setLoader('entering')
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () { setLoader('spinning') })
+          })
+        }
+        var finishLoader = function () {
+          setLoader('leaving')
+          setTimeout(function () { setLoader('idle') }, 300)
+        }
+
         var jump = function (entry) {
           setShow(false)
           setTip(null)
@@ -465,10 +509,12 @@ window.__ModuleLoader__.load({
           }
           // Target not loaded into the window yet: auto-page via the
           // chat's own "load older" button until the turn arrives.
+          startLoader()
           var attempts = 0
           var timer = setInterval(function () {
             if (!aliveRef.current) {
               clearInterval(timer)
+              finishLoader()
               return
             }
             attempts += 1
@@ -477,12 +523,14 @@ window.__ModuleLoader__.load({
               var rowNow = document.querySelector('[data-chat-anchor-key="' + escapeAttr(keyNow) + '"]')
               if (rowNow !== null && rowNow instanceof HTMLElement) {
                 clearInterval(timer)
+                finishLoader()
                 flashRow(rowNow)
                 return
               }
             }
             if (attempts > 40) {
               clearInterval(timer)
+              finishLoader()
               return
             }
             var flow = document.querySelector('[data-conversation-scroll] [data-chat-flow]')
@@ -560,7 +608,20 @@ window.__ModuleLoader__.load({
           }
         }
 
-        return react.createElement(react.Fragment, null, nav, tooltip)
+        var loaderEl = null
+        if (loader !== 'idle' && loaderPos !== null) {
+          var ty = loader === 'spinning' ? 0 : loader === 'leaving' ? -90 : -50
+          loaderEl = react.createElement('div', {
+            className: 'tr-loader',
+            style: {
+              top: loaderPos.top + 50,
+              left: loaderPos.left,
+              transform: 'translateX(-50%) translateY(' + ty + 'px)',
+            },
+          })
+        }
+
+        return react.createElement(react.Fragment, null, nav, tooltip, loaderEl)
       }
 
       slots.inject('conversation.input.dock', function () {

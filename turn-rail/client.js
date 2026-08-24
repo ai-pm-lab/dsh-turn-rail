@@ -434,6 +434,18 @@ window.__ModuleLoader__.load({
         }
 
         var flashRow = function (row) {
+          var scroller = document.querySelector('[data-conversation-scroll]')
+          // When the conversation is pinned to the bottom, nudge it just past
+          // the chat's bottom-follow threshold first. A smooth scrollIntoView
+          // starts with a tiny offset that the chat misreads as a programmatic
+          // write and snaps back to the floor; leaving the bottom first makes
+          // it read the jump as reader input so it sticks.
+          if (scroller !== null) {
+            var floor = scroller.scrollHeight - scroller.clientHeight
+            if (floor - scroller.scrollTop < 24) {
+              scroller.scrollTop = Math.max(0, scroller.scrollTop - 26)
+            }
+          }
           row.scrollIntoView({ behavior: 'smooth', block: 'start' })
           row.classList.add('tr-flash')
           setTimeout(function () {

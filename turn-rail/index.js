@@ -47,14 +47,21 @@ export default {
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register({
         key: 'turn-rail-history',
-        schema: zod.array(zod.object({
+        stateSchema: zod.array(zod.object({
           seq: zod.number(),
           time: zod.number(),
           text: zod.string(),
         })),
         init,
         apply,
-        view: (state) => state,
+        wire: {
+          viewSchema: zod.array(zod.object({
+            seq: zod.number(),
+            time: zod.number(),
+            text: zod.string(),
+          })),
+          view: (state) => state,
+        },
         stateVersion: 1,
       })
     })

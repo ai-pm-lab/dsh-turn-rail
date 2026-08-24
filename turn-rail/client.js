@@ -493,7 +493,10 @@ window.__ModuleLoader__.load({
           var scroller = document.querySelector('[data-conversation-scroll]')
           if (scroller !== null) {
             var r = scroller.getBoundingClientRect()
-            setLoaderPos({ left: r.left + r.width / 2, top: r.top })
+            // Pin the spinner to the right side of the conversation window,
+            // ~50px from its right edge. Measured fresh each trigger, so it
+            // follows window resizes on the next load.
+            setLoaderPos({ left: r.right - 50, top: r.top })
           }
           setLoader('entering')
           requestAnimationFrame(function () {

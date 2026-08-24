@@ -64,7 +64,7 @@ window.__ModuleLoader__.load({
       }
       .tr-wrapper {
         width: 34px;
-        pointer-events: none;
+        pointer-events: auto;
         border: 1px solid transparent;
         border-radius: 16px;
         flex-direction: column;
@@ -288,6 +288,8 @@ window.__ModuleLoader__.load({
         var edge = edgeState[0]
         var setEdge = edgeState[1]
         var pageRef = react.useRef(null)
+        var navUserScrollRef = react.useRef(0)
+        var pendingNavScrollRef = react.useRef(false)
         var aliveRef = react.useRef(true)
 
         react.useEffect(function () {
@@ -357,60 +359,36 @@ window.__ModuleLoader__.load({
           return m
         })()
 
-        // Scroll-spy (IntersectionObserver watchline, NetEye-style): a thin
-        // horizontal band at ~45% of the scrollport; the turn whose row
-        // crosses that band (nearest the top when several intersect) is the
-        // active one. No scroll-event throttling, no jank. When the band hits
-        // a non-user row (long assistant reply), walk back to its turn.
+        // Scroll-spy: the user turn currently at the viewport center.
+        // A throttled scroll listener + center-line walk-back — reliable at
+        // the very top and bottom, keeps a turn highlighted while long
+        // assistant replies fill the center.
         react.useEffect(function () {
           var scroller = document.querySelector('[data-conversation-scroll]')
-          if (scroller === null || typeof IntersectionObserver === 'undefined') return
-          var els = []
-          for (var i = 0; i < order.length; i += 1) {
-            var k = order[i]
-            var el = document.querySelector('[data-chat-anchor-key="' + escapeAttr(k) + '"]')
-            if (el !== null) els.push(el)
-          }
-          if (els.length === 0) return
-          var observer = new IntersectionObserver(function (entries) {
-            var best = null
-            var bestTop = Infinity
-            for (var i = 0; i < entries.length; i += 1) {
-              if (!entries[i].isIntersecting) continue
-              var top = entries[i].boundingClientRect.top
-              if (top < bestTop) {
-                bestTop = top
-                best = entries[i].target.dataset.chatAnchorKey
-              }
-            }
-            if (best === null) {
-              setActive(null)
-              return
-            }
-            var seq = keyToSeqRef.current.get(best)
-            if (seq !== undefined) {
-              setActive(seq)
-              return
-            }
+          if (scroller === null) return
+          var compute = function () {
+            var portRect = scroller.getBoundingClientRect()
+            if (portRect.height <= 0) return
+            var center = scroller.scrollTop + portRect.height / 2
             var arr = orderRef.current
-            var idx = arr.indexOf(best)
-            while (idx >= 0) {
-              var s = keyToSeqRef.current.get(arr[idx])
-              if (s !== undefined) {
-                setActive(s)
-                return
-              }
-              idx -= 1
+            var best = null
+            for (var i = 0; i < arr.length; i += 1) {
+              var key = arr[i]
+              var seq = keyToSeqRef.current.get(key)
+              if (seq === undefined) continue
+              var row = document.querySelector('[data-chat-anchor-key="' + escapeAttr(key) + '"]')
+              if (row === null) continue
+              var top = row.getBoundingClientRect().top - portRect.top + scroller.scrollTop
+              if (top <= center) best = seq
+              else break
             }
-            setActive(null)
-          }, {
-            root: scroller,
-            rootMargin: '-40% 0px -55% 0px',
-            threshold: 0,
-          })
-          for (var j = 0; j < els.length; j += 1) observer.observe(els[j])
+            if (best !== null) setActive(best)
+          }
+          var throttled = throttle(compute, 100)
+          compute()
+          scroller.addEventListener('scroll', throttled, { passive: true })
           return function () {
-            observer.disconnect()
+            scroller.removeEventListener('scroll', throttled)
           }
         }, [order, sessionId])
 
@@ -424,19 +402,21 @@ window.__ModuleLoader__.load({
         }, [show, active])
 
         // The nav strip's scroll window follows the ACTIVE turn (the message
-        // currently at the viewport center, tracked by the scroll-spy):
-        // center that turn's bar inside the strip. No proportional guessing,
-        // so what you see in the chat is exactly what the strip shows.
-        // While hovered (panel expanded), the user scrolls the panel freely;
-        // sync resumes on mouse leave and on the next active change.
+        // at the viewport center), centering that turn's bar in the strip.
+        // The user can also scroll the strip directly to browse ALL turns:
+        // after they scroll the strip within 3s we pause following so they
+        // can freely browse; the next conversation scroll resumes it. While
+        // hovered (panel expanded) the user scrolls the panel freely too.
         var syncNav = function () {
           if (showRef.current) return
+          if (Date.now() - navUserScrollRef.current < 3000) return
           var page = pageRef.current
           if (page === null) return
           var item = page.querySelector('.tr-item.tr-active')
           if (item === null) return
           var target = item.offsetTop - (page.clientHeight - 30) / 2
           target = Math.max(0, Math.min(target, page.scrollHeight - page.clientHeight))
+          pendingNavScrollRef.current = true
           page.scrollTop = target
         }
         react.useEffect(function () {
@@ -521,7 +501,14 @@ window.__ModuleLoader__.load({
             react.createElement('div', {
               className: 'tr-page',
               ref: function (el) { pageRef.current = el },
-              onScroll: updateEdge,
+              onScroll: function () {
+                if (pendingNavScrollRef.current) {
+                  pendingNavScrollRef.current = false
+                } else {
+                  navUserScrollRef.current = Date.now()
+                }
+                updateEdge()
+              },
             },
               entries.map(function (e) {
                 var isActive = e.seq === active

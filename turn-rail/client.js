@@ -221,7 +221,7 @@ window.__ModuleLoader__.load({
         height: 42px;
         pointer-events: none;
         transform: translateX(-50%);
-        transition: transform .28s ease;
+        transition: transform .28s ease, opacity .28s ease;
       }
       .tr-loader i {
         position: absolute;
@@ -618,7 +618,11 @@ window.__ModuleLoader__.load({
 
         var loaderEl = null
         if (loader !== 'idle' && loaderPos !== null) {
-          var ty = loader === 'spinning' ? 0 : loader === 'leaving' ? -90 : -50
+          // Entering starts just above the conversation window top; spinning
+          // sits 50px below it; leaving slides back to the conversation top
+          // and fades out there — never rising into the title bar.
+          var ty = loader === 'spinning' ? 0 : -50
+          var op = loader === 'leaving' ? 0 : 1
           var bars = []
           for (var b = 0; b < 12; b += 1) {
             bars.push(react.createElement('i', {
@@ -635,6 +639,7 @@ window.__ModuleLoader__.load({
               top: loaderPos.top + 50,
               left: loaderPos.left,
               transform: 'translateX(-50%) translateY(' + ty + 'px)',
+              opacity: op,
             },
           }, bars)
         }

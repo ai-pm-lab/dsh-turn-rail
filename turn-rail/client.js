@@ -494,9 +494,9 @@ window.__ModuleLoader__.load({
           if (scroller !== null) {
             var r = scroller.getBoundingClientRect()
             // Pin the spinner to the right side of the conversation window,
-            // ~100px from its right edge. Measured fresh each trigger, so it
+            // ~80px from its right edge. Measured fresh each trigger, so it
             // follows window resizes on the next load.
-            setLoaderPos({ left: r.right - 100, top: r.top })
+            setLoaderPos({ left: r.right - 80, top: r.top })
           }
           setLoader('entering')
           requestAnimationFrame(function () {
@@ -639,7 +639,7 @@ window.__ModuleLoader__.load({
           loaderEl = react.createElement('div', {
             className: 'tr-loader',
             style: {
-              top: loaderPos.top + 50,
+              top: loaderPos.top + 40,
               left: loaderPos.left,
               transform: 'translateX(-50%) translateY(' + ty + 'px)',
               opacity: op,

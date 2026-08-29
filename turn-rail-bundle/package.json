@@ -1,9 +1,17 @@
 {
   "name": "@dsh-user/turn-rail-bundle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "index.js",
+  "description": "turn-rail 的 profile bundle：把 @dsh-user/turn-rail 插入 dsh web roster，随服务自动加载",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "turn-rail"
+  ],
+  "license": "MIT",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

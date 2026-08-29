@@ -1,9 +1,23 @@
 {
   "name": "@dsh-user/turn-rail",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "index.js",
+  "description": "DeepSeek Harness Web 对话轮次导航条插件：右侧悬浮轮次导航、点击跳转自动翻页、iOS 风格加载动画",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "chat",
+    "navigation",
+    "turn-rail",
+    "spinner"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.0.0"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

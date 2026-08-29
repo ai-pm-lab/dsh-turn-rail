@@ -42,7 +42,7 @@
 ### 一键安装
 
 ```bash
-git clone https://github.com/huangjingyan1995-creator/dsh-turn-rail.git
+git clone https://github.com/ai-pm-lab/dsh-turn-rail.git
 cd dsh-turn-rail
 ./install.sh
 ```

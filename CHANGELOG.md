@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] — 未发布
+## [0.2.0] — 2025-08-29
 
 - 面向 GitHub 公开发布的准备：新增公开 README、LICENSE、CHANGELOG
 - 新增 `install.sh` / `uninstall.sh` 一键安装与卸载脚本

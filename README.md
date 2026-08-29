@@ -42,8 +42,8 @@
 ### 一键安装
 
 ```bash
-git clone https://github.com/<你的账号>/turn-rail.git
-cd turn-rail
+git clone https://github.com/huangjingyan1995-creator/dsh-turn-rail.git
+cd dsh-turn-rail
 ./install.sh
 ```
 

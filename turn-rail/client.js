@@ -552,8 +552,23 @@ window.__ModuleLoader__.load({
           }, 300)
         }
 
-        var openTip = function (entry) {
-          setTip({ seq: entry.seq, time: entry.time, text: entry.text })
+        var openTip = function (entry, ev) {
+          // Anchor the tooltip to the hovered row's Y position, clamped so the
+          // card never runs off the top or bottom of the viewport. The card is
+          // placed LEFT of the nav panel — right edge = nav offset (16px) +
+          // current panel width + 12px gap — so it never covers other rows.
+          var y = typeof ev === 'object' && ev !== null && typeof ev.clientY === 'number'
+            ? ev.clientY
+            : (window.innerHeight / 2)
+          y = Math.max(110, Math.min(y, window.innerHeight - 110))
+          var panelW = 34
+          var wrapper = document.querySelector('.tr-wrapper')
+          if (wrapper !== null) {
+            var contentW = wrapper.scrollWidth || 0
+            panelW = Math.min(Math.max(contentW, 34), 240)
+          }
+          var right = 16 + panelW + 12
+          setTip({ seq: entry.seq, time: entry.time, text: entry.text, y: y, right: right })
         }
 
         var wrapperClass = 'tr-wrapper'
@@ -587,7 +602,7 @@ window.__ModuleLoader__.load({
                   key: String(e.seq),
                   className: 'tr-item' + (isActive ? ' tr-active' : ''),
                   onClick: function () { jump(e) },
-                  onMouseEnter: function () { openTip(e) },
+                  onMouseEnter: function (ev) { openTip(e, ev) },
                   onMouseLeave: function () { setTip(null) },
                 },
                   react.createElement('span', { className: 'tr-title' },
@@ -612,7 +627,7 @@ window.__ModuleLoader__.load({
             }
           }
           if (hit !== null) {
-            tooltip = react.createElement('div', { className: 'tr-tooltip' },
+            tooltip = react.createElement('div', { className: 'tr-tooltip', style: { top: tip.y, right: tip.right } },
               react.createElement('span', { className: 'tr-tooltip-time' }, fmtTime(hit.time)),
               react.createElement('span', { className: 'tr-tooltip-text' }, hit.text || '（图片/附件消息）'),
             )

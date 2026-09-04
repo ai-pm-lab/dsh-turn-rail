@@ -1,10 +1,10 @@
 {
   "name": "@dsh-user/turn-rail",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "DeepSeek Harness Web 对话轮次导航条插件：右侧悬浮轮次导航、点击跳转自动翻页、iOS 风格加载动画",
+  "description": "DeepSeek Harness Web 对话轮次导航条插件：右侧悬浮轮次导航、点击跳转自动翻页、iOS 风格加载动画、消息删除",
   "keywords": [
     "deepseek-harness",
     "dsh",

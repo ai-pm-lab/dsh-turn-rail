@@ -240,6 +240,87 @@ window.__ModuleLoader__.load({
         50% { opacity: .3; }
         100% { opacity: 1; }
       }
+      /* Delete button — mirrors the shared message IconActions `.action`
+         chrome (28px round icon button, same hover treatment). */
+      .tr-del {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 6px;
+        border: none;
+        border-radius: 28px;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary);
+        cursor: pointer;
+      }
+      .tr-del:hover {
+        background: var(--dsw-alias-interactive-bg-hover);
+        color: var(--dsw-alias-danger, #dc2626);
+      }
+      .tr-del svg { display: block; }
+      /* A deleted turn's marker row: quiet, grey, unobtrusive. */
+      [data-chat-anchor-key].tr-del-marker {
+        filter: grayscale(1);
+        opacity: .7;
+      }
+      /* Delete confirmation dialog. */
+      .tr-dialog-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 3000;
+        background: rgba(0, 0, 0, .4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .tr-dialog {
+        width: 380px;
+        max-width: calc(100vw - 48px);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3));
+        background: var(--dsw-alias-bg-layer-1, #fff);
+        box-shadow: 0 12px 40px rgba(0,0,0,.25);
+      }
+      .tr-dialog-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--dsw-alias-label-primary, #222);
+      }
+      .tr-dialog-body {
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--dsw-alias-label-secondary, #666);
+      }
+      .tr-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      .tr-dialog-btn {
+        height: 32px;
+        padding: 0 14px;
+        border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3));
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dsw-alias-label-primary, #222);
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .tr-dialog-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .tr-dialog-btn-danger {
+        border-color: transparent;
+        background: var(--dsw-alias-danger, #dc2626);
+        color: #fff;
+      }
+      .tr-dialog-btn-danger:hover { background: #b91c1c; }
+      .tr-dialog-btn:disabled { opacity: .5; cursor: default; }
     `
 
     var extractText = function (content) {
@@ -282,9 +363,85 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // --- delete action (button + confirm dialog) ---
+    var MARKER_TEXT = '（已删除）'
+    var DEL_BTN = 'tr-del'
+
+    var trashIcon = function () {
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24')
+      svg.setAttribute('width', '16')
+      svg.setAttribute('height', '16')
+      svg.setAttribute('fill', 'none')
+      svg.setAttribute('stroke', 'currentColor')
+      svg.setAttribute('stroke-width', '2')
+      svg.setAttribute('stroke-linecap', 'round')
+      svg.setAttribute('stroke-linejoin', 'round')
+      var paths = [
+        'M3 6h18',
+        'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6',
+        'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+        'M10 11v6',
+        'M14 11v6',
+      ]
+      for (var i = 0; i < paths.length; i += 1) {
+        var p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        p.setAttribute('d', paths[i])
+        svg.appendChild(p)
+      }
+      return svg
+    }
+
+    var openDeleteDialog = function (conversation, seq) {
+      var overlay = document.createElement('div')
+      overlay.className = 'tr-dialog-overlay'
+      var dialog = document.createElement('div')
+      dialog.className = 'tr-dialog'
+      var title = document.createElement('div')
+      title.className = 'tr-dialog-title'
+      title.textContent = '删除这条消息？'
+      var body = document.createElement('div')
+      body.className = 'tr-dialog-body'
+      body.textContent = '将删除这条消息及其回复。删除后无法恢复，内容将不再参与上下文。'
+      var actions = document.createElement('div')
+      actions.className = 'tr-dialog-actions'
+      var cancelBtn = document.createElement('button')
+      cancelBtn.type = 'button'
+      cancelBtn.className = 'tr-dialog-btn'
+      cancelBtn.textContent = '取消'
+      var okBtn = document.createElement('button')
+      okBtn.type = 'button'
+      okBtn.className = 'tr-dialog-btn tr-dialog-btn-danger'
+      okBtn.textContent = '删除'
+      var close = function () { overlay.remove() }
+      cancelBtn.addEventListener('click', close)
+      overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close() })
+      okBtn.addEventListener('click', function () {
+        okBtn.disabled = true
+        cancelBtn.disabled = true
+        okBtn.textContent = '删除中…'
+        conversation.send('/turn-rail-delete ' + seq).then(function () {
+          close()
+        }, function (err) {
+          body.textContent = '删除失败：' + String(err && err.message ? err.message : err)
+          okBtn.disabled = false
+          cancelBtn.disabled = false
+          okBtn.textContent = '删除'
+        })
+      })
+      actions.appendChild(cancelBtn)
+      actions.appendChild(okBtn)
+      dialog.appendChild(title)
+      dialog.appendChild(body)
+      dialog.appendChild(actions)
+      overlay.appendChild(dialog)
+      document.body.appendChild(overlay)
+    }
+
     var apply = function (ctx) {
       var slots = ctx.get('slots')
       if (slots === undefined) return
+      var conversation = ctx.get('conversation')
 
       var styleTag = document.createElement('style')
       styleTag.dataset.dyn = 'turn-rail'
@@ -458,6 +615,66 @@ window.__ModuleLoader__.load({
         react.useEffect(function () {
           syncNav()
         }, [active, entries.length])
+
+        // Delete buttons: inject a trash button after each committed user
+        // message's Copy action, and grey out deleted-turn marker rows.
+        // React may recreate the action rows on re-render, so the scan rides
+        // a MutationObserver over the conversation scroller.
+        react.useEffect(function () {
+          if (conversation === undefined) return
+          var ensure = function () {
+            // 1) marker rows stay quiet and never get a delete button
+            var rows = document.querySelectorAll('[data-chat-anchor-key]')
+            for (var r = 0; r < rows.length; r += 1) {
+              var rowText = (rows[r].textContent || '').trim()
+              if (rowText.indexOf(MARKER_TEXT) !== -1) rows[r].classList.add('tr-del-marker')
+            }
+            // 2) delete button per user message
+            var kindMap = kindRef.current
+            var seqMap = keyToSeqRef.current
+            for (var i = 0; i < orderRef.current.length; i += 1) {
+              var key = orderRef.current[i]
+              if (kindMap.get(key) !== 'user') continue
+              var seq = seqMap.get(key)
+              if (seq === undefined) continue
+              var row = document.querySelector('[data-chat-anchor-key="' + escapeAttr(key) + '"]')
+              if (row === null) continue
+              var copyBtn = null
+              var buttons = row.querySelectorAll('button')
+              for (var b = 0; b < buttons.length; b += 1) {
+                var label = buttons[b].getAttribute('aria-label') || ''
+                if (label === 'Copy' || label === '已复制' || label === '复制') {
+                  copyBtn = buttons[b]
+                  break
+                }
+              }
+              if (copyBtn === null) continue
+              var actionsRow = copyBtn.parentElement
+              if (actionsRow === null) continue
+              if (actionsRow.querySelector('.' + DEL_BTN) !== null) continue
+              var btn = document.createElement('button')
+              btn.type = 'button'
+              btn.className = DEL_BTN
+              btn.setAttribute('aria-label', '删除此消息')
+              btn.appendChild(trashIcon())
+              ;(function (targetSeq) {
+                btn.addEventListener('click', function () {
+                  openDeleteDialog(conversation, targetSeq)
+                })
+              })(seq)
+              actionsRow.insertBefore(btn, copyBtn.nextSibling)
+            }
+          }
+          ensure()
+          var scroller = document.querySelector('[data-conversation-scroll]')
+          if (scroller === null) return
+          var throttledEnsure = throttle(ensure, 300)
+          var observer = new MutationObserver(throttledEnsure)
+          observer.observe(scroller, { childList: true, subtree: true })
+          return function () {
+            observer.disconnect()
+          }
+        }, [order, sessionId])
 
         if (entries.length === 0) return null
 
@@ -680,7 +897,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply
-    exports.inject = ['slots']
+    exports.inject = ['slots', 'conversation']
     return module.exports
   },
 })

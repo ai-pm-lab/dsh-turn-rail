@@ -127,8 +127,12 @@ function deleteTurn(session, targetSeq) {
   const startSeq = shadowedSeqs[0]
   const endSeq = shadowedSeqs[shadowedSeqs.length - 1]
 
-  // Marker provenance: reuse the deleted reply's source when one exists.
-  let source = { kind: 'model', provider: '', model: '' }
+  // Marker provenance: reuse the deleted reply's source when one exists, else
+  // the most recent assistant message source in the session. The persistence
+  // validator requires a model source with NON-EMPTY provider/model strings
+  // (`hasProviderModel`), so a bare {kind:'model'} fallback would corrupt the
+  // session on restore — keep the last-resort values concrete.
+  let source = null
   let turn = -1
   let step = 0
   for (const seq of shadowedSeqs) {
@@ -137,10 +141,28 @@ function deleteTurn(session, targetSeq) {
       turn = typeof nodeEvent.data.turn === 'number' ? nodeEvent.data.turn : turn
       step = typeof nodeEvent.data.step === 'number' ? nodeEvent.data.step : step
       if (nodeEvent.data.message !== null && typeof nodeEvent.data.message === 'object'
-        && nodeEvent.data.message.source !== null && typeof nodeEvent.data.message.source === 'object') {
+        && nodeEvent.data.message.source !== null && typeof nodeEvent.data.message.source === 'object'
+        && typeof nodeEvent.data.message.source.provider === 'string' && nodeEvent.data.message.source.provider.length > 0
+        && typeof nodeEvent.data.message.source.model === 'string' && nodeEvent.data.message.source.model.length > 0) {
         source = nodeEvent.data.message.source
       }
     }
+  }
+  if (source === null) {
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const event = events[i]
+      if (event.type === 'assistant/message'
+        && event.data.message !== null && typeof event.data.message === 'object'
+        && event.data.message.source !== null && typeof event.data.message.source === 'object'
+        && typeof event.data.message.source.provider === 'string' && event.data.message.source.provider.length > 0
+        && typeof event.data.message.source.model === 'string' && event.data.message.source.model.length > 0) {
+        source = event.data.message.source
+        break
+      }
+    }
+  }
+  if (source === null) {
+    source = { kind: 'model', provider: 'turn-rail', model: 'turn-rail-delete' }
   }
   if (turn === -1) {
     // No assistant content in this turn (stopped before any output): take the

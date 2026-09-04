@@ -260,6 +260,8 @@ window.__ModuleLoader__.load({
         color: var(--dsw-alias-danger, #dc2626);
       }
       .tr-del svg { display: block; }
+      /* Rows of a deleted turn: hidden from the transcript view. */
+      [data-chat-anchor-key].tr-del-hidden { display: none !important; }
       /* A deleted turn's marker row: quiet, grey, unobtrusive. */
       [data-chat-anchor-key].tr-del-marker {
         filter: grayscale(1);
@@ -431,16 +433,27 @@ window.__ModuleLoader__.load({
         cancelBtn.disabled = true
         okBtn.textContent = '删除中…'
         Promise.resolve(execute('/turn-rail-delete ' + seq)).then(function (outcome) {
-          if (outcome === undefined) {
+          // The commands Remote resolves to the RPC envelope:
+          // { ok, value: CommandExecution | undefined, error? }.
+          if (outcome === undefined || outcome === null) {
             fail('删除失败：命令未注册或格式不正确。')
             return
           }
-          if (outcome.result === null || typeof outcome.result !== 'object') {
+          if (outcome.ok === false) {
+            fail('删除失败：' + String(outcome.error && outcome.error.message ? outcome.error.message : '请求失败'))
+            return
+          }
+          if (outcome.value === undefined || outcome.value === null) {
+            fail('删除失败：命令未注册或格式不正确。')
+            return
+          }
+          var cmdResult = outcome.value.result
+          if (cmdResult === null || typeof cmdResult !== 'object') {
             fail('删除失败：返回结果格式异常。')
             return
           }
-          if (outcome.result.kind === 'error') {
-            fail('删除失败：' + String(outcome.result.text || '未知错误'))
+          if (cmdResult.kind === 'error') {
+            fail('删除失败：' + String(cmdResult.text || '未知错误'))
             return
           }
           close()
@@ -535,20 +548,26 @@ window.__ModuleLoader__.load({
           keyToSeq.set(key, seq)
         }
 
+        // The projection view is { entries, deleted }: rail rows plus the
+        // durable list of deleted user-message seqs (for row hiding).
+        var historyView = history !== null && typeof history === 'object' && !Array.isArray(history)
+          ? history
+          : { entries: [], deleted: [] }
+        var historyEntries = Array.isArray(historyView.entries) ? historyView.entries : []
+        var historyDeleted = Array.isArray(historyView.deleted) ? historyView.deleted : []
+
         var bySeq = new Map()
-        if (Array.isArray(history)) {
-          for (var h = 0; h < history.length; h += 1) {
-            var item = history[h]
-            if (item === null || typeof item !== 'object') continue
-            var hseq = typeof item.seq === 'number' ? item.seq : 0
-            if (hseq === 0) continue
-            bySeq.set(hseq, {
-              seq: hseq,
-              time: typeof item.time === 'number' ? item.time : 0,
-              text: typeof item.text === 'string' ? item.text : '',
-              key: seqToKey.get(hseq),
-            })
-          }
+        for (var h = 0; h < historyEntries.length; h += 1) {
+          var item = historyEntries[h]
+          if (item === null || typeof item !== 'object') continue
+          var hseq = typeof item.seq === 'number' ? item.seq : 0
+          if (hseq === 0) continue
+          bySeq.set(hseq, {
+            seq: hseq,
+            time: typeof item.time === 'number' ? item.time : 0,
+            text: typeof item.text === 'string' ? item.text : '',
+            key: seqToKey.get(hseq),
+          })
         }
         for (var w = 0; w < windowEntries.length; w += 1) {
           var we = windowEntries[w]
@@ -560,6 +579,13 @@ window.__ModuleLoader__.load({
         seqToKeyRef.current = seqToKey
         var keyToSeqRef = react.useRef(keyToSeq)
         keyToSeqRef.current = keyToSeq
+
+        var deletedRef = react.useRef(null)
+        deletedRef.current = (function () {
+          var s = new Set()
+          for (var d = 0; d < historyDeleted.length; d += 1) s.add(historyDeleted[d])
+          return s
+        })()
 
         var orderRef = react.useRef(order)
         orderRef.current = order
@@ -639,12 +665,35 @@ window.__ModuleLoader__.load({
         }, [active, entries.length])
 
         // Delete buttons: inject a trash button after each committed user
-        // message's Copy action, and grey out deleted-turn marker rows.
+        // message's Copy action, grey out deleted-turn marker rows, and hide
+        // the chat rows of deleted turns (dsh keeps shadowed content in the
+        // transcript by design, so the plugin owns the hiding; the deleted
+        // seq list is durable through the projection, so it survives reloads).
         // React may recreate the action rows on re-render, so the scan rides
         // a MutationObserver over the conversation scroller.
         react.useEffect(function () {
           if (remote === undefined) return
           var ensure = function () {
+            // 0) hide rows of deleted turns: from each deleted user seq
+            //    forward until the "（已删除）" marker row (exclusive) or the
+            //    next user message.
+            var kindMap = kindRef.current
+            var seqMap = keyToSeqRef.current
+            var deletedSet = deletedRef.current
+            var orderArr = orderRef.current
+            for (var di = 0; di < orderArr.length; di += 1) {
+              var keyD = orderArr[di]
+              var seqD = seqMap.get(keyD)
+              if (seqD === undefined || !deletedSet.has(seqD)) continue
+              for (var j = di; j < orderArr.length; j += 1) {
+                var keyJ = orderArr[j]
+                if (j > di && kindMap.get(keyJ) === 'user') break
+                var rowJ = document.querySelector('[data-chat-anchor-key="' + escapeAttr(keyJ) + '"]')
+                if (rowJ === null) continue
+                if ((rowJ.textContent || '').indexOf(MARKER_TEXT) !== -1) break
+                rowJ.classList.add('tr-del-hidden')
+              }
+            }
             // 1) marker rows stay quiet and never get a delete button
             var rows = document.querySelectorAll('[data-chat-anchor-key]')
             for (var r = 0; r < rows.length; r += 1) {
@@ -652,13 +701,11 @@ window.__ModuleLoader__.load({
               if (rowText.indexOf(MARKER_TEXT) !== -1) rows[r].classList.add('tr-del-marker')
             }
             // 2) delete button per user message
-            var kindMap = kindRef.current
-            var seqMap = keyToSeqRef.current
             for (var i = 0; i < orderRef.current.length; i += 1) {
               var key = orderRef.current[i]
               if (kindMap.get(key) !== 'user') continue
               var seq = seqMap.get(key)
-              if (seq === undefined) continue
+              if (seq === undefined || deletedSet.has(seq)) continue
               var row = document.querySelector('[data-chat-anchor-key="' + escapeAttr(key) + '"]')
               if (row === null) continue
               var copyBtn = null

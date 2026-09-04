@@ -34,12 +34,18 @@ function extractText(content) {
 /** The deleted-turn marker the replacement node renders in the chat. */
 const DELETED_MARKER = '（已删除）'
 
-/** State: one entry per real user message (source kind 'user'). */
-const init = () => []
+/**
+ * State: the rail entries (one per real user message) plus the durable list
+ * of deleted user-message seqs. The client uses `deleted` to hide the
+ * shadowed chat rows, including after a page reload — dsh keeps shadowed
+ * content in the human transcript by design, so the plugin owns the hiding.
+ */
+const init = () => ({ entries: [], deleted: [] })
 
 /**
  * Pure fold: append user/message events, ignore everything else, and honour
- * `compaction/prune` deletions by dropping the shadowed seqs. Same-reference
+ * `compaction/prune` deletions by dropping the shadowed seqs and recording
+ * the deleted user-message seq (the range always starts at it). Same-reference
  * returns keep the projection framework's change detection cheap.
  */
 function apply(state, event) {
@@ -49,19 +55,24 @@ function apply(state, event) {
       ? new Set(data.shadowedSeqs)
       : null
     if (shadowed === null) return state
-    const next = state.filter(entry => !shadowed.has(entry.seq))
-    return next.length === state.length ? state : next
+    const entries = state.entries.filter(entry => !shadowed.has(entry.seq))
+    const firstShadowed = data.shadowedSeqs.length > 0 ? data.shadowedSeqs[0] : null
+    const deleted = firstShadowed !== null && !state.deleted.includes(firstShadowed)
+      ? state.deleted.concat([firstShadowed])
+      : state.deleted
+    if (entries.length === state.entries.length && deleted === state.deleted) return state
+    return { entries, deleted }
   }
   if (event.type !== 'user/message') return state
   const data = event.data
   const source = data !== null && typeof data === 'object' ? data.source : undefined
   if (source === null || typeof source !== 'object' || source.kind !== 'user') return state
-  const next = state.concat([{
+  const next = state.entries.concat([{
     seq: event.seq,
     time: event.time,
     text: extractText(data.content),
   }])
-  return next
+  return { entries: next, deleted: state.deleted }
 }
 
 /** Fabricate a stable message id for the marker message (Node host: crypto exists). */
@@ -174,22 +185,28 @@ export default {
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register({
         key: 'turn-rail-history',
-        stateSchema: zod.array(zod.object({
-          seq: zod.number(),
-          time: zod.number(),
-          text: zod.string(),
-        })),
-        init,
-        apply,
-        wire: {
-          viewSchema: zod.array(zod.object({
+        stateSchema: zod.object({
+          entries: zod.array(zod.object({
             seq: zod.number(),
             time: zod.number(),
             text: zod.string(),
           })),
+          deleted: zod.array(zod.number()),
+        }),
+        init,
+        apply,
+        wire: {
+          viewSchema: zod.object({
+            entries: zod.array(zod.object({
+              seq: zod.number(),
+              time: zod.number(),
+              text: zod.string(),
+            })),
+            deleted: zod.array(zod.number()),
+          }),
           view: (state) => state,
         },
-        stateVersion: 2,
+        stateVersion: 3,
       })
     })
 

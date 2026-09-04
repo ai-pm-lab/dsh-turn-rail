@@ -240,7 +240,7 @@ window.__ModuleLoader__.load({
         50% { opacity: .3; }
         100% { opacity: 1; }
       }
-      /* Delete button — mirrors the shared message IconActions `.action`
+      /* Delete button — mirrors the shared message IconActions action
          chrome (28px round icon button, same hover treatment). */
       .tr-del {
         display: inline-flex;

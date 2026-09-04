@@ -666,7 +666,9 @@ window.__ModuleLoader__.load({
               ;(function (targetSeq) {
                 btn.addEventListener('click', function () {
                   var scoped = sessions.scope(sessionId)
-                  var scopedConversation = scoped === undefined ? null : scoped.conversation
+                  // Scoped services are addressed through ctx.get(name), not
+                  // direct property access (cordis throws "without inject").
+                  var scopedConversation = scoped === undefined ? null : scoped.get('conversation')
                   openDeleteDialog(scopedConversation, targetSeq)
                 })
               })(seq)

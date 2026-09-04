@@ -417,6 +417,10 @@ window.__ModuleLoader__.load({
       cancelBtn.addEventListener('click', close)
       overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close() })
       okBtn.addEventListener('click', function () {
+        if (conversation === null) {
+          body.textContent = '删除失败：当前没有可用的会话上下文，请刷新页面后重试。'
+          return
+        }
         okBtn.disabled = true
         cancelBtn.disabled = true
         okBtn.textContent = '删除中…'
@@ -441,7 +445,9 @@ window.__ModuleLoader__.load({
     var apply = function (ctx) {
       var slots = ctx.get('slots')
       if (slots === undefined) return
-      var conversation = ctx.get('conversation')
+      // The conversation service is session-scoped: address it through
+      // ctx.sessions.scope(sessionId).conversation at call time.
+      var sessions = ctx.get('sessions')
 
       var styleTag = document.createElement('style')
       styleTag.dataset.dyn = 'turn-rail'
@@ -621,7 +627,7 @@ window.__ModuleLoader__.load({
         // React may recreate the action rows on re-render, so the scan rides
         // a MutationObserver over the conversation scroller.
         react.useEffect(function () {
-          if (conversation === undefined) return
+          if (sessions === undefined) return
           var ensure = function () {
             // 1) marker rows stay quiet and never get a delete button
             var rows = document.querySelectorAll('[data-chat-anchor-key]')
@@ -659,7 +665,9 @@ window.__ModuleLoader__.load({
               btn.appendChild(trashIcon())
               ;(function (targetSeq) {
                 btn.addEventListener('click', function () {
-                  openDeleteDialog(conversation, targetSeq)
+                  var scoped = sessions.scope(sessionId)
+                  var scopedConversation = scoped === undefined ? null : scoped.conversation
+                  openDeleteDialog(scopedConversation, targetSeq)
                 })
               })(seq)
               actionsRow.insertBefore(btn, copyBtn.nextSibling)
@@ -897,7 +905,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply
-    exports.inject = ['slots', 'conversation']
+    exports.inject = ['slots', 'sessions']
     return module.exports
   },
 })

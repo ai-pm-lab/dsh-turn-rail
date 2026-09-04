@@ -392,7 +392,7 @@ window.__ModuleLoader__.load({
       return svg
     }
 
-    var openDeleteDialog = function (conversation, seq) {
+    var openDeleteDialog = function (execute, seq) {
       var overlay = document.createElement('div')
       overlay.className = 'tr-dialog-overlay'
       var dialog = document.createElement('div')
@@ -414,23 +414,38 @@ window.__ModuleLoader__.load({
       okBtn.className = 'tr-dialog-btn tr-dialog-btn-danger'
       okBtn.textContent = '删除'
       var close = function () { overlay.remove() }
+      var fail = function (text) {
+        body.textContent = text
+        okBtn.disabled = false
+        cancelBtn.disabled = false
+        okBtn.textContent = '删除'
+      }
       cancelBtn.addEventListener('click', close)
       overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close() })
       okBtn.addEventListener('click', function () {
-        if (conversation === null) {
-          body.textContent = '删除失败：当前没有可用的会话上下文，请刷新页面后重试。'
+        if (execute === null) {
+          body.textContent = '删除失败：命令通道不可用，请刷新页面后重试。'
           return
         }
         okBtn.disabled = true
         cancelBtn.disabled = true
         okBtn.textContent = '删除中…'
-        conversation.send('/turn-rail-delete ' + seq).then(function () {
+        Promise.resolve(execute('/turn-rail-delete ' + seq)).then(function (outcome) {
+          if (outcome === undefined) {
+            fail('删除失败：命令未注册或格式不正确。')
+            return
+          }
+          if (outcome.result === null || typeof outcome.result !== 'object') {
+            fail('删除失败：返回结果格式异常。')
+            return
+          }
+          if (outcome.result.kind === 'error') {
+            fail('删除失败：' + String(outcome.result.text || '未知错误'))
+            return
+          }
           close()
         }, function (err) {
-          body.textContent = '删除失败：' + String(err && err.message ? err.message : err)
-          okBtn.disabled = false
-          cancelBtn.disabled = false
-          okBtn.textContent = '删除'
+          fail('删除失败：' + String(err && err.message ? err.message : err))
         })
       })
       actions.appendChild(cancelBtn)
@@ -445,9 +460,10 @@ window.__ModuleLoader__.load({
     var apply = function (ctx) {
       var slots = ctx.get('slots')
       if (slots === undefined) return
-      // The conversation service is session-scoped: address it through
-      // ctx.sessions.scope(sessionId).conversation at call time.
-      var sessions = ctx.get('sessions')
+      // Command execution rides the generated commands Remote
+      // (ctx.remote.commands.execute), the same channel ui-commands uses —
+      // it never appends a user/message event to the chat.
+      var remote = ctx.get('remote')
 
       var styleTag = document.createElement('style')
       styleTag.dataset.dyn = 'turn-rail'
@@ -627,7 +643,7 @@ window.__ModuleLoader__.load({
         // React may recreate the action rows on re-render, so the scan rides
         // a MutationObserver over the conversation scroller.
         react.useEffect(function () {
-          if (sessions === undefined) return
+          if (remote === undefined) return
           var ensure = function () {
             // 1) marker rows stay quiet and never get a delete button
             var rows = document.querySelectorAll('[data-chat-anchor-key]')
@@ -665,11 +681,11 @@ window.__ModuleLoader__.load({
               btn.appendChild(trashIcon())
               ;(function (targetSeq) {
                 btn.addEventListener('click', function () {
-                  var scoped = sessions.scope(sessionId)
-                  // Scoped services are addressed through ctx.get(name), not
-                  // direct property access (cordis throws "without inject").
-                  var scopedConversation = scoped === undefined ? null : scoped.get('conversation')
-                  openDeleteDialog(scopedConversation, targetSeq)
+                  var commandsRemote = remote.commands
+                  var executor = commandsRemote === undefined ? null : function (line) {
+                    return commandsRemote.execute(sessionId, line, [])
+                  }
+                  openDeleteDialog(executor, targetSeq)
                 })
               })(seq)
               actionsRow.insertBefore(btn, copyBtn.nextSibling)
@@ -907,7 +923,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply
-    exports.inject = ['slots', 'sessions']
+    exports.inject = ['slots', 'remote', 'remote.commands']
     return module.exports
   },
 })

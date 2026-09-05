@@ -11,11 +11,12 @@
  * 2. Registers the `/turn-rail-delete <seq>` slash command: logically deletes
  *    one user message and its reply turn through the compaction prune
  *    protocol — a `compaction/prune` shadow-price event immediately followed
- *    by a surface `replace` that swaps the whole turn for one minimal
- *    assistant marker ("（已删除）"). Shadowed events stop contributing to the
- *    derived LLM history (context injection), the chat surface, and this
- *    projection. The append-only log keeps the original events, exactly like
- *    dsh's own compaction.
+ *    by a surface `replace` that swaps the whole turn for one EMPTY assistant
+ *    placeholder (empty content derives to null, so it never enters the model
+ *    context; the visible "（已删除）" marker is DOM-injected client-side).
+ *    Shadowed events stop contributing to the derived LLM history, the chat
+ *    surface, and this projection. The append-only log keeps the original
+ *    events, exactly like dsh's own compaction.
  */
 import { z as zod } from 'zod'
 
@@ -31,7 +32,11 @@ function extractText(content) {
   return parts.join(' ').replace(/\s+/g, ' ').trim()
 }
 
-/** The deleted-turn marker the replacement node renders in the chat. */
+/**
+ * The deleted-turn marker text the client injects into the transcript.
+ * The surface replacement node itself carries EMPTY content (see deleteTurn)
+ * so it stays out of the model context — this string is UI-only.
+ */
 const DELETED_MARKER = '（已删除）'
 
 /**
@@ -56,8 +61,15 @@ function apply(state, event) {
       : null
     if (shadowed === null) return state
     const entries = state.entries.filter(entry => !shadowed.has(entry.seq))
+    // Only record a deleted USER-message seq. dsh's own tool-result pruner also
+    // emits `compaction/prune`, and its first shadowed seq is a `tool/result`,
+    // not a user message — recording it would pollute `deleted` and spur a
+    // change notification. Gate on that seq actually being one of the user
+    // entries we just dropped.
     const firstShadowed = data.shadowedSeqs.length > 0 ? data.shadowedSeqs[0] : null
-    const deleted = firstShadowed !== null && !state.deleted.includes(firstShadowed)
+    const wasUserEntry = firstShadowed !== null
+      && state.entries.some(entry => entry.seq === firstShadowed)
+    const deleted = wasUserEntry && !state.deleted.includes(firstShadowed)
       ? state.deleted.concat([firstShadowed])
       : state.deleted
     if (entries.length === state.entries.length && deleted === state.deleted) return state
@@ -188,7 +200,10 @@ function deleteTurn(session, targetSeq) {
     message: {
       id: newMessageId(),
       role: 'assistant',
-      content: [{ type: 'text', text: DELETED_MARKER }],
+      // Empty content: deriveEventMessage maps an empty assistant message to
+      // null, so this placeholder never enters the model context. The visible
+      // "（已删除）" marker is injected client-side (see client.js), not here.
+      content: [],
       source,
     },
   }, {
@@ -228,7 +243,7 @@ export default {
           }),
           view: (state) => state,
         },
-        stateVersion: 3,
+        stateVersion: 4,
       })
     })
 

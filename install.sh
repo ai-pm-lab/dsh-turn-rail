@@ -23,6 +23,10 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 mkdir -p "$PKG_DIR"
+# Remove any prior copy first: `cp -R src dst` with an existing `dst` nests
+# `src` INSIDE `dst` (leaving the old files stale), so re-running the installer
+# must clear the destination to stay idempotent.
+rm -rf "$PKG_DIR/turn-rail" "$PKG_DIR/turn-rail-bundle"
 cp -R "$HERE/turn-rail" "$PKG_DIR/turn-rail"
 cp -R "$HERE/turn-rail-bundle" "$PKG_DIR/turn-rail-bundle"
 

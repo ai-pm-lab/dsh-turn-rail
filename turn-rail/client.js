@@ -267,6 +267,28 @@ window.__ModuleLoader__.load({
         filter: grayscale(1);
         opacity: .7;
       }
+      /* Inline "（已删除）" marker injected at each deleted turn's position
+         (the surface replace marker is model-only and never renders). */
+      .tr-del-inline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0;
+        padding: 2px 2px 2px 6px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--dsw-alias-label-tertiary, #999);
+        user-select: none;
+      }
+      .tr-del-inline:before {
+        content: "";
+        flex: none;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: .6;
+      }
       /* Delete confirmation dialog. */
       .tr-dialog-overlay {
         position: fixed;
@@ -399,8 +421,12 @@ window.__ModuleLoader__.load({
       overlay.className = 'tr-dialog-overlay'
       var dialog = document.createElement('div')
       dialog.className = 'tr-dialog'
+      dialog.setAttribute('role', 'dialog')
+      dialog.setAttribute('aria-modal', 'true')
       var title = document.createElement('div')
       title.className = 'tr-dialog-title'
+      title.id = 'tr-del-dialog-title'
+      dialog.setAttribute('aria-labelledby', 'tr-del-dialog-title')
       title.textContent = '删除这条消息？'
       var body = document.createElement('div')
       body.className = 'tr-dialog-body'
@@ -415,7 +441,11 @@ window.__ModuleLoader__.load({
       okBtn.type = 'button'
       okBtn.className = 'tr-dialog-btn tr-dialog-btn-danger'
       okBtn.textContent = '删除'
-      var close = function () { overlay.remove() }
+      var previouslyFocused = document.activeElement
+      var close = function () {
+        overlay.remove()
+        if (previouslyFocused !== null && typeof previouslyFocused.focus === 'function') previouslyFocused.focus()
+      }
       var fail = function (text) {
         body.textContent = text
         okBtn.disabled = false
@@ -424,6 +454,9 @@ window.__ModuleLoader__.load({
       }
       cancelBtn.addEventListener('click', close)
       overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close() })
+      overlay.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape' || ev.key === 'Esc') close()
+      })
       okBtn.addEventListener('click', function () {
         if (execute === null) {
           body.textContent = '删除失败：命令通道不可用，请刷新页面后重试。'
@@ -468,6 +501,7 @@ window.__ModuleLoader__.load({
       dialog.appendChild(actions)
       overlay.appendChild(dialog)
       document.body.appendChild(overlay)
+      cancelBtn.focus()
     }
 
     var apply = function (ctx) {
@@ -527,14 +561,17 @@ window.__ModuleLoader__.load({
           }
         }, [])
 
-        // Window-scoped live user nodes: key + seq + text.
+        // Window-scoped live user nodes: key + seq + text. Steering messages
+        // (a user message admitted into a running turn) are also user-originated
+        // `user/message` events — include them so their nav row has a valid key
+        // and clicking can jump instead of spinning on the auto-page path.
         var windowEntries = []
         var seqToKey = new Map()
         var keyToSeq = new Map()
         for (var i = 0; i < order.length; i += 1) {
           var key = order[i]
           var node = nodes.get(key)
-          if (node === undefined || node.kind !== 'user') continue
+          if (node === undefined || (node.kind !== 'user' && node.kind !== 'steering')) continue
           var data = node.data
           var seq = data !== null && typeof data === 'object' && typeof data.seq === 'number' ? data.seq : 0
           if (seq === 0) continue
@@ -556,12 +593,20 @@ window.__ModuleLoader__.load({
         var historyEntries = Array.isArray(historyView.entries) ? historyView.entries : []
         var historyDeleted = Array.isArray(historyView.deleted) ? historyView.deleted : []
 
+        // Deleted user-message seqs (durable through the projection, survives
+        // reload). The surface replace only shadows a turn from the MODEL, while
+        // dsh's human transcript keeps the append-origin user message in the live
+        // chat nodes — so windowEntries alone would re-add a deleted row. Filter
+        // every source against this set so the rail never resurrects a deleted row.
+        var deletedSeqSet = new Set()
+        for (var d = 0; d < historyDeleted.length; d += 1) deletedSeqSet.add(historyDeleted[d])
+
         var bySeq = new Map()
         for (var h = 0; h < historyEntries.length; h += 1) {
           var item = historyEntries[h]
           if (item === null || typeof item !== 'object') continue
           var hseq = typeof item.seq === 'number' ? item.seq : 0
-          if (hseq === 0) continue
+          if (hseq === 0 || deletedSeqSet.has(hseq)) continue
           bySeq.set(hseq, {
             seq: hseq,
             time: typeof item.time === 'number' ? item.time : 0,
@@ -571,7 +616,8 @@ window.__ModuleLoader__.load({
         }
         for (var w = 0; w < windowEntries.length; w += 1) {
           var we = windowEntries[w]
-          if (!bySeq.has(we.seq)) bySeq.set(we.seq, we)
+          if (deletedSeqSet.has(we.seq) || bySeq.has(we.seq)) continue
+          bySeq.set(we.seq, we)
         }
         var entries = Array.from(bySeq.values()).sort(function (a, b) { return a.seq - b.seq })
 
@@ -581,11 +627,7 @@ window.__ModuleLoader__.load({
         keyToSeqRef.current = keyToSeq
 
         var deletedRef = react.useRef(null)
-        deletedRef.current = (function () {
-          var s = new Set()
-          for (var d = 0; d < historyDeleted.length; d += 1) s.add(historyDeleted[d])
-          return s
-        })()
+        deletedRef.current = deletedSeqSet
 
         var orderRef = react.useRef(order)
         orderRef.current = order
@@ -687,12 +729,36 @@ window.__ModuleLoader__.load({
               if (seqD === undefined || !deletedSet.has(seqD)) continue
               for (var j = di; j < orderArr.length; j += 1) {
                 var keyJ = orderArr[j]
-                if (j > di && kindMap.get(keyJ) === 'user') break
+                var kindJ = kindMap.get(keyJ)
+                if (j > di && (kindJ === 'user' || kindJ === 'steering')) break
                 var rowJ = document.querySelector('[data-chat-anchor-key="' + escapeAttr(keyJ) + '"]')
                 if (rowJ === null) continue
                 if ((rowJ.textContent || '').indexOf(MARKER_TEXT) !== -1) break
                 rowJ.classList.add('tr-del-hidden')
               }
+            }
+            // 0.5) inline "（已删除）" marker at each deleted turn's position
+            //      so the user can see which turn was removed (the surface
+            //      replace marker is model-only and never renders here).
+            for (var mi = 0; mi < orderArr.length; mi += 1) {
+              var keyM = orderArr[mi]
+              var seqM = seqMap.get(keyM)
+              if (seqM === undefined || !deletedSet.has(seqM)) continue
+              var rowM = document.querySelector('[data-chat-anchor-key="' + escapeAttr(keyM) + '"]')
+              if (rowM === null) continue
+              var host = rowM.parentNode
+              if (host === null) continue
+              var markerAttr = 'data-tr-deleted'
+              var markerVal = String(seqM)
+              var prevEl = rowM.previousElementSibling
+              if (prevEl !== null && prevEl.getAttribute(markerAttr) === markerVal) continue
+              var stale = host.querySelector('[' + markerAttr + '="' + markerVal + '"]')
+              if (stale !== null) stale.remove()
+              var markerEl = document.createElement('div')
+              markerEl.setAttribute(markerAttr, markerVal)
+              markerEl.className = 'tr-del-inline'
+              markerEl.textContent = MARKER_TEXT
+              host.insertBefore(markerEl, rowM)
             }
             // 1) marker rows stay quiet and never get a delete button
             var rows = document.querySelectorAll('[data-chat-anchor-key]')
@@ -736,6 +802,17 @@ window.__ModuleLoader__.load({
                 })
               })(seq)
               actionsRow.insertBefore(btn, copyBtn.nextSibling)
+            }
+            // 3) hide the successful /turn-rail-delete command card at the
+            //    transcript tail — the inline marker above already names the
+            //    removed turn, so the bottom card would only be redundant.
+            var cmdRows = document.querySelectorAll('[data-chat-flow-kind="command"]')
+            for (var cr = 0; cr < cmdRows.length; cr += 1) {
+              var cmdText = cmdRows[cr].textContent || ''
+              if (cmdText.indexOf('turn-rail-delete') !== -1
+                  && cmdText.indexOf('已删除该条消息及其回复') !== -1) {
+                cmdRows[cr].classList.add('tr-del-hidden')
+              }
             }
           }
           ensure()

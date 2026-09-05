@@ -33,6 +33,14 @@
 - 点击尚未加载进窗口的早期轮次时，自动逐页点击"加载更早"翻找目标，同时在对话窗口右侧显示 42px 苹果风 spinner（12 根放射条、逐条相位旋转）
 - 动画从窗口顶部上方滑入，加载完成滑回顶部淡出，不侵入标题栏
 
+### 消息删除
+
+- 每条用户消息的复制按钮旁新增删除按钮，点击弹出确认弹窗
+- 确认后删除整轮（该消息 + 其回复，含工具结果），被删内容不再注入模型上下文
+- 删除位置原位显示一行灰色"（已删除）"标记，右侧导航条同步移除该轮条目
+- 正在生成的轮次拒绝删除，避免破坏对话状态
+- 也可用命令 `/turn-rail-delete <消息seq>` 删除
+
 ## 截图
 
 | 收起态 | 悬停展开 |
@@ -42,6 +50,14 @@
 | 消息预览 tooltip | 点击早期轮次时的加载动画 |
 | --- | --- |
 | ![tooltip](docs/screenshots/03-rail-tooltip.png) | ![加载动画](docs/screenshots/04-rail-spinner.png) |
+
+| 删除按钮 | 删除确认弹窗 |
+| --- | --- |
+| ![删除按钮](docs/screenshots/05-delete-button.png) | ![确认弹窗](docs/screenshots/06-delete-confirm.png) |
+
+| 删除后的原位标记 |
+| --- |
+| ![删除标记](docs/screenshots/07-delete-marker.png) |
 
 ## 安装
 
@@ -84,12 +100,13 @@ cd dsh-turn-rail
 - 窗口右侧的细条即导航条：悬停展开、悬停单行看预览、点击跳转
 - 点击早期未加载的轮次：出现加载动画并自动翻页，到达后目标消息闪烁定位
 - 手动滚动导航条浏览全部轮次，停止滚动 3 秒后恢复跟随当前阅读位置
+- 悬停用户消息，点复制按钮旁的删除（垃圾桶）按钮 → 确认弹窗点"删除"，整轮被移除并在原位留下灰色"（已删除）"标记
 
 ## 工作原理
 
 | 包 | 作用 |
 | --- | --- |
-| `turn-rail/` | 插件本体。服务端 `index.js` 注册 `turn-rail-history` 投影，把全量会话折叠成 `[{seq, time, text}]` 轮次摘要；客户端 `client.js` 是手写的浏览器 bundle（`window.__ModuleLoader__.load` 契约，免构建），注入 conversation 槽位渲染导航条与 spinner |
+| `turn-rail/` | 插件本体。服务端 `index.js` 注册 `turn-rail-history` 投影，把全量会话折叠成 `[{seq, time, text}]` 轮次摘要，并注册 `/turn-rail-delete` 命令；客户端 `client.js` 是手写的浏览器 bundle（`window.__ModuleLoader__.load` 契约，免构建），注入 conversation 槽位渲染导航条、spinner 与删除交互 |
 | `turn-rail-bundle/` | profile bundle：`cordis.patch.yml` 把插件行插入 web roster，随服务自动加载 |
 
 ## 目录结构
@@ -102,8 +119,8 @@ cd dsh-turn-rail
 ├── install.sh            # 一键安装
 ├── uninstall.sh          # 卸载
 ├── turn-rail/            # 插件本体
-│   ├── client.js         # 浏览器端：导航条 + 加载动画
-│   ├── index.js          # 服务端：turn-rail-history 投影
+│   ├── client.js         # 浏览器端：导航条 + 加载动画 + 删除交互
+│   ├── index.js          # 服务端：turn-rail-history 投影 + /turn-rail-delete 命令
 │   └── package.json
 ├── turn-rail-bundle/     # profile bundle（安装器）
 │   ├── cordis.patch.yml
